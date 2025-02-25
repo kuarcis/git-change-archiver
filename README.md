@@ -1,4 +1,4 @@
-# Git Patch Generator
+# Git Change Archiver v 1.0
 
 A PowerShell script that helps you create a zip file containing changes between two Git commits. This tool is particularly useful when you need to package and share specific changes from your Git repository.
 

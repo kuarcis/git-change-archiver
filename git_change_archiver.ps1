@@ -3,7 +3,7 @@
 $env:LANG = "en_US.UTF-8"
 
 # Show header
-Write-Host "`n=== Git Patch Generator ===" -ForegroundColor Cyan
+Write-Host "`n=== Git Change Archiver v 1.0 ===" -ForegroundColor Cyan
 Write-Host "This script will help you create a zip file containing changes between two commits`n" -ForegroundColor Cyan
 
 # Get last 50 commits and display them
@@ -11,41 +11,94 @@ Write-Host "Fetching last 50 commits..." -ForegroundColor Yellow
 $commits = git -c core.quotepath=false log --pretty=format:"%h - [%ad] %s" --date=format:"%Y-%m-%d %H:%M" -n 50 | Out-String
 $commitArray = $commits -split "`n" | Where-Object { $_ -match '\S' }
 
-# Display commits with index
-Write-Host "`nAvailable commits (newest to oldest):" -ForegroundColor Green
-for ($i = 0; $i -lt $commitArray.Count; $i++) {
-    Write-Host "$($i+1). $($commitArray[$i])"
-}
-
-# Get user input for commits
-Write-Host "`nPlease select commits by entering their numbers (1-50)" -ForegroundColor Yellow
-Write-Host "For single commit comparison with HEAD, enter one number" -ForegroundColor Yellow
-Write-Host "For commit range, enter two numbers separated by space" -ForegroundColor Yellow
-$selection = Read-Host "Your selection"
-
-# Process user input
-$selectedIndexes = $selection -split ' ' | ForEach-Object { [int]$_ - 1 }
-
-if ($selectedIndexes.Count -gt 2) {
-    Write-Host "Error: Please select maximum 2 commits" -ForegroundColor Red
-    exit 1
-}
-
-# Extract commit hashes
-$selectedCommits = @()
-foreach ($index in $selectedIndexes) {
-    if ($index -ge 0 -and $index -lt $commitArray.Count) {
-        $commitLine = $commitArray[$index]
-        if ($commitLine -match '^([a-f0-9]+)') {
-            $selectedCommits += $matches[1]
-        }
+function Show-CommitList {
+    param (
+        [string[]]$commits,
+        [int]$startIndex = 0
+    )
+    for ($i = $startIndex; $i -lt $commits.Count; $i++) {
+        Write-Host "$($i+1). $($commits[$i])"
     }
 }
 
-# Validate commit hashes
-if ($selectedCommits.Count -eq 0) {
-    Write-Host "Error: Invalid commit selection" -ForegroundColor Red
-    exit 1
+function Get-FirstCommit {
+    Write-Host "`nAvailable commits (newest to oldest):" -ForegroundColor Green
+    Show-CommitList -commits $commitArray
+    
+    while ($true) {
+        Write-Host "`nPlease select the first commit, content in the commit WON'T include in the output(1-50):" -ForegroundColor Yellow
+        $selection = Read-Host "Your selection"
+        
+        if ($selection -match '^\d+$') {
+            $index = [int]$selection - 1
+            if ($index -ge 0 -and $index -lt $commitArray.Count) {
+                return $index
+            }
+        }
+        Write-Host "Invalid selection. Please try again." -ForegroundColor Red
+    }
+}
+
+function Get-SecondCommit {
+    param (
+        [int]$firstIndex
+    )
+    
+    Write-Host "`nSelected first commit: $($commitArray[$firstIndex])" -ForegroundColor Cyan
+    Write-Host "`nAvailable commits (newer than selected, oldest to newest):" -ForegroundColor Green
+    
+    # Show commits newer than the selected one in reverse order
+    $newerCommits = $commitArray[0..$firstIndex]
+    [array]::Reverse($newerCommits)
+    Show-CommitList -commits $newerCommits
+    
+    while ($true) {
+        Write-Host "`nPlease select the second commit (1-$($firstIndex + 1)) or:" -ForegroundColor Yellow
+        Write-Host "- Press Enter to use HEAD" -ForegroundColor Yellow
+        Write-Host "- Type 'back' to reselect first commit" -ForegroundColor Yellow
+        $selection = Read-Host "Your selection"
+        
+        if ($selection -eq 'back') {
+            return $null
+        }
+        
+        if ([string]::IsNullOrWhiteSpace($selection)) {
+            return "HEAD"
+        }
+        
+        if ($selection -match '^\d+$') {
+            $selectedIndex = [int]$selection - 1
+            if ($selectedIndex -ge 0 -and $selectedIndex -le $firstIndex) {
+                return $newerCommits[$selectedIndex]
+            }
+        }
+        Write-Host "Invalid selection. Please try again." -ForegroundColor Red
+    }
+}
+
+# Get commit selections
+$selectedCommits = @()
+while ($true) {
+    $firstIndex = Get-FirstCommit
+    $firstCommit = $commitArray[$firstIndex]
+    if ($firstCommit -match '^([a-f0-9]+)') {
+        $firstHash = $matches[1]
+    }
+    
+    $secondSelection = Get-SecondCommit -firstIndex $firstIndex
+    if ($null -eq $secondSelection) {
+        continue
+    }
+    
+    if ($secondSelection -eq "HEAD") {
+        $selectedCommits = @($firstHash)
+    } else {
+        if ($secondSelection -match '^([a-f0-9]+)') {
+            $secondHash = $matches[1]
+            $selectedCommits = @($secondHash, $firstHash)
+        }
+    }
+    break
 }
 
 # Determine old and new commits
